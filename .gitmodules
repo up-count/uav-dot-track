@@ -1,0 +1,6 @@
+[submodule "uavdot"]
+	path = uavdot
+	url = git@github.com:PUTvision/UAV-DOT.git
+[submodule "eval/TrackEval"]
+	path = eval/TrackEval
+	url = git@github.com:JonathonLuiten/TrackEval.git
