@@ -76,7 +76,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
         flow_scale_factor=2.0 if dataset == 'dronecrowd' else 4.0
     )
     
-    for i, frame in enumerate(tqdm(video_source)):
+    for i, (frame, alt) in enumerate(tqdm(video_source)):
 
         predictions = cache_helper(frame_id=i, image=frame)
 
