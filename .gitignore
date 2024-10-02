@@ -5,6 +5,9 @@ outputs/
 lightning_logs/
 checkpoints/
 results/
+datasets/
+pedestrian_plot.png
+pedestrian_plot.pdf
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
