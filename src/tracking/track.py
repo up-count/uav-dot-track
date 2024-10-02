@@ -29,6 +29,7 @@ class Track:
         
         self._kbt = KalmanBoxTracker(pred)
         self._pos = pred
+        self._pos_pointflow = None
         
         self._color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
     
@@ -75,6 +76,22 @@ class Track:
     @property
     def xyxy(self):
         x1, y1, x2, y2 = self._pos.xyxy
+        return int(x1), int(y1), int(x2), int(y2)
+    
+    @property
+    def xywh_pointflow(self):
+        if self._pos_pointflow is None:
+            return int(0), int(0), int(0), int(0)
+
+        x, y, w, h = self._pos_pointflow.xywh
+        return int(x), int(y), int(w), int(h)
+    
+    @property
+    def xyxy_pointflow(self):
+        if self._pos_pointflow is None:
+            return int(0), int(0), int(0), int(0)
+
+        x1, y1, x2, y2 = self._pos_pointflow.xyxy
         return int(x1), int(y1), int(x2), int(y2)
 
     @property

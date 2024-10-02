@@ -26,7 +26,8 @@ from src.utils.video_writer import VideoWriter
 @click.option('--track-iou-threshold', type=float, help='IOU threshold', default=0.2)
 @click.option('--track-cmc-flow', type=bool, is_flag=True, help='Use optical flow')
 @click.option('--track-use-alt', type=bool, is_flag=True, help='Use altitude information')
-def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age, track_min_hits, track_iou_threshold, track_cmc_flow, track_use_alt):
+@click.option('--track-use-pointflow', type=bool, is_flag=True, help='Use pointflow for tracking')
+def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age, track_min_hits, track_iou_threshold, track_cmc_flow, track_use_alt, track_use_pointflow):
     if not os.path.exists(video):
         print(f'Video file {video} does not exist')
         return
@@ -72,8 +73,9 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
         max_age=track_max_age,
         min_hits=track_min_hits,
         iou_threshold=track_iou_threshold,
-        flow = track_cmc_flow,
-        flow_scale_factor=2.0 if dataset == 'dronecrowd' else 4.0
+        use_flow = track_cmc_flow,
+        use_pointflow=track_use_pointflow,
+        flow_scale_factor=2.0 if dataset == 'dronecrowd' else 4.0,
     )
     
     for i, (frame, alt) in enumerate(tqdm(video_source)):

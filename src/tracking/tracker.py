@@ -1,6 +1,7 @@
 from typing import List, Optional, Tuple
 
 import numpy as np
+import cv2
 from scipy.optimize import linear_sum_assignment
 
 from src.tracking.detection_result import DetectionResult
@@ -11,9 +12,11 @@ from src.tracking.track_state import TrackState
 
 
 class Tracker:
-    def __init__(self, max_age=5, min_hits=3, iou_threshold=0.4, flow = False, flow_scale_factor = 1.0) -> None:
+    def __init__(self, max_age=5, min_hits=3, iou_threshold=0.4, use_flow = False, flow_scale_factor = 1.0, use_pointflow=False) -> None:
         self.iou_threshold = iou_threshold
-        self.use_flow = flow
+        self.use_flow = use_flow
+        self.flow_scale_factor = flow_scale_factor
+        self.use_pointflow = use_pointflow
         
         self.trackers = []
         self.tracks_counter = 0
@@ -110,7 +113,11 @@ class Tracker:
                     matches.append((m[1], detections[m[0]]))
         else:
             unmatched_trackers = list(range(len(self.trackers)))
-            
+        
+        if self.use_pointflow and len(unmatched_trackers) > 0:
+            matches, unmatched_detections, unmatched_trackers = \
+                self.associate_using_pointflow(frame, detections, matches, unmatched_detections, unmatched_trackers)
+
         return matches, unmatched_detections, unmatched_trackers
     
     # https://github.com/RizwanMunawar/yolov7-object-tracking/blob/main/sort.py#L29C1-L44C14
@@ -128,3 +135,149 @@ class Tracker:
         wh = w * h
         o = wh / ((bb_test[..., 2] - bb_test[..., 0]) * (bb_test[..., 3] - bb_test[..., 1]) + (bb_gt[..., 2] - bb_gt[..., 0]) * (bb_gt[..., 3] - bb_gt[..., 1]) - wh)
         return(o)
+
+    def associate_using_pointflow(self, frame: np.ndarray, detections: List[DetectionResult], matches: List[Tuple[int, DetectionResult]], unmatched_detections: List[int], unmatched_trackers: List[int]):
+        # TODO: Predict the next location of the unmatched trackers using pointflow
+        self.predict_next_locations_using_pointflow(frame, unmatched_trackers)
+
+        if len(unmatched_detections) > 0:
+            matches, unmatched_detections, unmatched_trackers = \
+                self._associate_detections_using_pointflow(detections, matches, unmatched_detections, unmatched_trackers)
+            
+        if len(unmatched_trackers) > 0:
+            matches, unmatched_trackers = \
+                self._associate_tracks_using_pointflow(matches, unmatched_trackers)
+            
+        return matches, unmatched_detections, unmatched_trackers
+        
+        
+    def predict_next_locations_using_pointflow(self, frame: np.ndarray, unmatched_trackers: List[int]):
+        lk_params = dict( winSize  = (5, 5),
+                  maxLevel = 3,
+                  criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+        
+        prev_frame_gray = cv2.cvtColor(cv2.resize(self.prev_frame, None, fx=1/self.flow_scale_factor, fy=1/self.flow_scale_factor), cv2.COLOR_BGR2GRAY)
+        curr_frame_gray = cv2.cvtColor(cv2.resize(frame, None, fx=1/self.flow_scale_factor, fy=1/self.flow_scale_factor), cv2.COLOR_BGR2GRAY)
+
+
+        for i in unmatched_trackers:
+            prev_xywh = np.array(self.trackers[i].xywh).reshape(1, 4)
+            prev_xy = prev_xywh[:2].reshape(-1, 1, 2).astype(np.float32)
+
+            prev_xy /= self.flow_scale_factor
+
+            new_xy, status, err = cv2.calcOpticalFlowPyrLK(prev_frame_gray, curr_frame_gray, prev_xy, None, **lk_params) 
+
+            new_xy *= self.flow_scale_factor
+
+            if status[0]:
+                self.trackers[i]._pos_pointflow = DetectionResult(
+                    label=self.trackers[i].label,
+                    confidence=max(self.trackers[i].confidence-0.05, 0.0),
+                    x=new_xy[0][0][0],
+                    y=new_xy[0][0][1],
+                    w=prev_xywh[0][2],
+                    h=prev_xywh[0][3]
+                )
+            else:
+                self.trackers[i]._pos_pointflow = None
+
+
+        # prev_points = np.array([self.trackers[i].xywh for i in unmatched_trackers])
+        # prev_points_loc = prev_points[:, :2].reshape(-1, 1, 2).astype(np.float32)
+
+        # lk_params = dict( winSize  = (5, 5),
+        #           maxLevel = 3,
+        #           criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+
+        # new_points, statuses, errors = cv2.calcOpticalFlowPyrLK(cv2.cvtColor(self.prev_frame, cv2.COLOR_BGR2GRAY), cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), prev_points_loc, None, **lk_params)
+
+        # for i, (new_point, status) in enumerate(zip(new_points, statuses)):
+        #     if status[0]:
+        #         self.trackers[unmatched_trackers[i]]._pos_pointflow = DetectionResult(
+        #                 label=self.trackers[unmatched_trackers[i]].label,
+        #                 confidence=max(self.trackers[unmatched_trackers[i]].confidence-0.05, 0.0),
+        #                 x=new_point[0][0],
+        #                 y=new_point[0][1],
+        #                 w=prev_points[i][2],
+        #                 h=prev_points[i][3]
+        #                 )
+        #     else:
+        #         self.trackers[unmatched_trackers[i]]._pos_pointflow = None
+
+
+    def _associate_detections_using_pointflow(self, detections: List[DetectionResult], matches: List[Tuple[int, DetectionResult]], unmatched_detections: List[int], unmatched_trackers: List[int]):
+            pointflow_xyxys = np.array([self.trackers[t].xyxy_pointflow for t in unmatched_trackers if self.trackers[t].is_confirmed])
+            detections_xyxys = np.array([detections[d_idx].xyxy for d_idx in unmatched_detections])
+            
+            if len(pointflow_xyxys) == 0:
+                return matches, unmatched_detections, unmatched_trackers
+            
+            iou_matrix = self._iou_batch(pointflow_xyxys, detections_xyxys)
+            
+            if min(iou_matrix.shape) > 0:
+                a = (iou_matrix > self.iou_threshold).astype(np.int32)
+                if a.sum(1).max() == 1 and a.sum(0).max() == 1:
+                    matched_indices = np.stack(np.where(a), axis=1)
+                else:
+                    y, x = linear_sum_assignment(-iou_matrix)
+                    matched_indices = np.array(list(zip(y, x)))
+            else:
+                matched_indices = np.empty(shape=(0,2))
+                
+            detections_ids_to_remove = []
+            # handle matches
+            for m in matched_indices:
+                if iou_matrix[m[0], m[1]] > self.iou_threshold:
+                    
+                    det = detections[unmatched_detections[m[1]]]
+                    det.particle = True
+                    
+                    matches.append((unmatched_trackers[m[0]], det))
+                    detections_ids_to_remove.append(unmatched_detections[m[1]])
+            
+            unmatched_detections = [d for d in unmatched_detections if d not in detections_ids_to_remove]
+            
+            return matches, unmatched_detections, unmatched_trackers
+
+    def _associate_tracks_using_pointflow(self, matches: List[Tuple[int, DetectionResult]], unmatched_trackers: List[int]):
+            trackers_xyxys = np.array([self.trackers[t].xyxy for t in unmatched_trackers if self.trackers[t].is_confirmed])
+            pointflow_xyxys = np.array([self.trackers[t].xyxy_pointflow for t in unmatched_trackers if self.trackers[t].is_confirmed])
+            
+            if len(pointflow_xyxys) == 0:
+                return matches, unmatched_trackers
+            
+            iou_matrix = self._iou_batch(pointflow_xyxys, trackers_xyxys)
+            
+            if min(iou_matrix.shape) > 0:
+                a = (iou_matrix > self.iou_threshold).astype(np.int32)
+                if a.sum(1).max() == 1 and a.sum(0).max() == 1:
+                    matched_indices = np.stack(np.where(a), axis=1)
+                else:
+                    y, x = linear_sum_assignment(-iou_matrix)
+                    matched_indices = np.array(list(zip(y, x)))
+            else:
+                matched_indices = np.empty(shape=(0,2))
+            
+            tracks_ids_to_remove = []
+            # handle matches
+            for m in matched_indices:
+                if iou_matrix[m[0], m[1]] > self.iou_threshold:
+                    
+                    x1, y1, x2, y2 = pointflow_xyxys[m[0]]
+                    
+                    new_det = DetectionResult(
+                        label=self.trackers[unmatched_trackers[m[1]]].label,
+                        confidence=self.trackers[unmatched_trackers[m[1]]].confidence,
+                        x=(x1 + x2) // 2,
+                        y=(y1 + y2) // 2,
+                        w=x2 - x1,
+                        h=y2 - y1,
+                    )
+                    
+                    matches.append((unmatched_trackers[m[1]], new_det))
+                    tracks_ids_to_remove.append(unmatched_trackers[m[1]])
+
+            unmatched_trackers = [t for t in unmatched_trackers if t not in tracks_ids_to_remove]                  
+
+            return matches, unmatched_trackers
