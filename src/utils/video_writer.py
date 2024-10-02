@@ -1,11 +1,13 @@
 import cv2
 from pathlib import Path
 
+from src.utils.video_reader import VideoAltitudeReader
+
 
 class VideoWriter:
-    def __init__(self, output_dir, file_name, cap):
+    def __init__(self, output_dir, video_source: VideoAltitudeReader):
         self.output_dir = output_dir
-        self.file_name = file_name
+        self.file_name = video_source.file_name
         
         self.video_writer = None
         
@@ -14,8 +16,8 @@ class VideoWriter:
         self.video_writer = cv2.VideoWriter(
             f'{self.output_dir}/{self.file_name}.avi',
             cv2.VideoWriter_fourcc(*'XVID'),
-            float(cap.get(cv2.CAP_PROP_FPS)),
-            (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))),
+            video_source.fps,
+            video_source.resolution,
             )
 
     def update(self, frame):     
