@@ -39,7 +39,7 @@ class DetectionResult:
         return (self.x, self.y, self.w, self.h)
 
 
-def from_numpy_to_detection_results(predictions):
+def from_numpy_to_detection_results(predictions, alt):
     """
     Convert a numpy array to a list of DetectionResult objects.
 
@@ -47,10 +47,17 @@ def from_numpy_to_detection_results(predictions):
     ----------
     predictions : np.ndarray
         The predictions to convert. [N, 3] -> [X, Y, confidence]
+    alt: float
+        The altitude of the frame.
 
     Returns
     -------
     List[DetectionResult]
         The list of DetectionResult objects.
     """
-    return [DetectionResult(label='', confidence=p[2], x=p[0], y=p[1], w=20, h=20) for p in predictions]
+    if alt < 0:
+        size = 20
+    else:
+        size = 100 / alt * 20
+
+    return [DetectionResult(label='', confidence=p[2], x=p[0], y=p[1], w=size, h=size) for p in predictions]

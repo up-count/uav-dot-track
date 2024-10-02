@@ -86,7 +86,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
                 
                 cv2.circle(frame, (int(x), int(y)), 3, (0, 0, 255), -1)
         else:
-            online_tracks = tracker(frame, i, from_numpy_to_detection_results(predictions))
+            online_tracks = tracker(frame, i, from_numpy_to_detection_results(predictions, alt))
 
             for t in online_tracks:
                 if 'vid' in task or 'viz' in task:
