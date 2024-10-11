@@ -29,7 +29,7 @@ class DetectionResult:
     y: int
     w: int
     h: int
-    
+
     @property
     def xyxy(self):
         return (self.x - self.w//2, self.y - self.h//2, self.x + self.w//2, self.y + self.h//2)

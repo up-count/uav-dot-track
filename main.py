@@ -54,7 +54,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
     with open(dot_config, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     
-    video_source = VideoAltitudeReader(video, use_alt=track_use_alt)
+    video_source = VideoAltitudeReader(video, dataset=dataset, use_alt=track_use_alt)
         
     if 'vid' in task:
         write_video = VideoWriter('./outputs/videos/', video_source)
