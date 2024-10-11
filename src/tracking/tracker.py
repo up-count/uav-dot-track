@@ -67,7 +67,7 @@ class Tracker:
             self.trackers[track_idx].mark_missed()
             
         for detection_idx in unmatched_dets:
-            self._add([predictions[detection_idx]])
+            self._add([predictions[detection_idx]], state=TrackState.NEW)
         
         self.prev_frame = frame
         return [track for track in self.trackers if track.is_confirmed]
