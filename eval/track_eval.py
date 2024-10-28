@@ -1,43 +1,42 @@
 import sys
-from multiprocessing import freeze_support
 import click
 import numpy as np
 
 sys.path.insert(0, './eval/TrackEval/')
 import trackeval  # noqa: E402
 
-freeze_support()
 
 
 @click.command()
-@click.option('--dataset', type.click.Choice(['dronecrowd', 'upcount']), required=True)
+@click.option('--dataset', type=click.Choice(['dronecrowd', 'upcount']), required=True)
 def main(dataset):
 
     # Command line interface:
     default_eval_config = trackeval.Evaluator.get_default_eval_config()
-    default_eval_config['DISPLAY_LESS_PROGRESS'] = False
+    default_eval_config['DISPLAY_LESS_PROGRESS'] = True
     default_eval_config['PRINT_RESULTS'] = False
     default_eval_config['OUTPUT_SUMMARY'] = False
     default_eval_config['OUTPUT_EMPTY_CLASSES'] = False
     default_eval_config['OUTPUT_DETAILED'] = False
+    default_eval_config['PLOT_CURVES'] = False
+
     default_dataset_config = trackeval.datasets.MotChallenge2DBox.get_default_dataset_config()
+    default_dataset_config['PRINT_CONFIG'] = False
+    default_dataset_config['SPLIT_TO_EVAL'] = 'test'
+    default_dataset_config['DO_PREPROC'] = False
+
     default_metrics_config = {'METRICS': ['HOTA', 'CLEAR', 'Identity'], 'THRESHOLD': 0.0}
     config = {**default_eval_config, **default_dataset_config, **default_metrics_config}  # Merge default configs
-
 
     eval_config = {k: v for k, v in config.items() if k in default_eval_config.keys()}
     dataset_config = {k: v for k, v in config.items() if k in default_dataset_config.keys()}
     metrics_config = {k: v for k, v in config.items() if k in default_metrics_config.keys()}
 
     if dataset == 'dronecrowd':
-        dataset_config['SPLIT_TO_EVAL'] = 'test'
-        dataset_config['DO_PREPROC'] = False
         dataset_config['GT_FOLDER'] = './eval/gt/dronecrowd/'
         dataset_config['TRACKERS_FOLDER'] = './outputs/preds/dronecrowd/'
         dataset_config['SEQMAP_FILE'] = './eval/gt/dronecrowd_testlist.txt'
     elif dataset == 'upcount':
-        dataset_config['SPLIT_TO_EVAL'] = 'test'
-        dataset_config['DO_PREPROC'] = False
         dataset_config['GT_FOLDER'] = './eval/gt/upcount/'
         dataset_config['TRACKERS_FOLDER'] = './outputs/preds/upcount/'
         dataset_config['SEQMAP_FILE'] = './eval/gt/upcount_testlist.txt'
@@ -98,9 +97,9 @@ def main(dataset):
 
     # print results as a table, e.g.:
 
-    # Alg | HOTA | MOTA | MOTP | IDSW | IDF1 | GT_IDs | IDs
-    # -------------------------------------------------------
-    # A   | 0.5  | 0.6  | 0.7  | 0.8  | 0.9  | 10     | 10
+    # Alg | HOTA | MOTA | MOTP | IDSW | IDF1 | GT_IDs | IDs | TRCount | TRRelCount | TP | FN | FP
+    # -------------------------------------------------------------------------------------------
+    # A   | 0.5  | 0.6  | 0.7  | 0.8  | 0.9  | 10     | 10 | 0.5     | 0.05       | 10 | 0  | 0
 
     for alg, st in stats.items():
         GT_IDS = st['GT_IDs']
@@ -116,11 +115,16 @@ def main(dataset):
         st['TRCount'] = TRCount
         st['TRRelCount'] = TRRelCount
 
-    print(f'Alg'.ljust(30), end=' | '); print(f'HOTA'.ljust(10), end=' | '); print(f'MOTA'.ljust(10), end=' | '); print(f'MOTP'.ljust(10), end=' | ')
-    print(f'IDSW'.ljust(10), end=' | '); print(f'IDF1'.ljust(10), end=' | '); print(f'GT_IDs'.ljust(10), end=' | '); print(f'IDs'.ljust(10), end=' | ')
-    print(f'TRCount'.ljust(10), end=' | '); print(f'TRRelCount'.ljust(10))
+    print(f'Alg'.ljust(30), end=' | '); 
 
-    print('-' * 80)
+    for k, v in stats[list(stats.keys())[0]].items():
+        print(f'{k}'.ljust(10), end=' | ')
+
+    print()
+    print('-' * 140)
+
+    # sort by TRRelCount
+    stats = {k: v for k, v in sorted(stats.items(), key=lambda item: np.mean(item[1]['TRRelCount']), reverse=True)}
 
     for alg, st in stats.items():
         

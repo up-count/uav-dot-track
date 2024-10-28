@@ -21,6 +21,8 @@ class DetectionResult:
         The width of the detected object.
     h : int
         The height of the detected object.
+    frame_shape : Tuple[int, int]
+        The shape of the frame.
     """
 
     label: str
@@ -29,17 +31,29 @@ class DetectionResult:
     y: int
     w: int
     h: int
+    frame_shape: Tuple[int, int]
+    from_pointflow: bool = False
 
     @property
     def xyxy(self):
-        return (self.x - self.w//2, self.y - self.h//2, self.x + self.w//2, self.y + self.h//2)
+        x1 = self.x - self.w//2
+        y1 = self.y - self.h//2
+        x2 = self.x + self.h//2
+        y2 = self.y + self.h//2
+        
+        x1 = max(0, min(self.frame_shape[1]-1, x1))
+        y1 = max(0, min(self.frame_shape[0]-1, y1))
+        x2 = max(0, min(self.frame_shape[1]-1, x2))
+        y2 = max(0, min(self.frame_shape[0]-1, y2))
+        
+        return (int(x1), int(y1), int(x2), int(y2))
     
     @property
     def xywh(self):
-        return (self.x, self.y, self.w, self.h)
+        return (int(self.x), int(self.y), int(self.w), int(self.h))
 
 
-def from_numpy_to_detection_results(predictions, alt):
+def from_numpy_to_detection_results(predictions, alt, frame_shape):
     """
     Convert a numpy array to a list of DetectionResult objects.
 
@@ -58,6 +72,6 @@ def from_numpy_to_detection_results(predictions, alt):
     if alt < 0:
         size = 20
     else:
-        size = 100 / alt * 20
+        size = int(100 / alt * 20)
 
-    return [DetectionResult(label='', confidence=p[2], x=p[0], y=p[1], w=size, h=size) for p in predictions]
+    return [DetectionResult(label='', confidence=p[2], x=p[0], y=p[1], w=size, h=size, frame_shape=frame_shape) for p in predictions]
