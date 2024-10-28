@@ -11,7 +11,7 @@ from src.tracking.detection_result import DetectionResult
 class KalmanBoxTracker(object):
     
     count = 0
-    def __init__(self, det: DetectionResult):
+    def __init__(self, det: DetectionResult, frame_shape: Tuple[int, int]):
         """
         Initialize a tracker using initial bounding box
         
@@ -20,6 +20,8 @@ class KalmanBoxTracker(object):
         self.det = det
         
         bbox = det.xyxy
+
+        self.frame_shape = frame_shape
         
         self.kf = KalmanFilter(dim_x=7, dim_z=4)
         self.kf.F = np.array([[1,0,0,0,1,0,0],[0,1,0,0,0,1,0],[0,0,1,0,0,0,1],[0,0,0,1,0,0,0],[0,0,0,0,1,0,0],[0,0,0,0,0,1,0],[0,0,0,0,0,0,1]])
@@ -84,8 +86,9 @@ class KalmanBoxTracker(object):
             confidence=self.det.confidence,
             x=(x1+x2)/2,
             y=(y1+y2)/2,
-            w=x2-x1,
-            h=y2-y1,
+            w=self.det.xywh[2],
+            h=self.det.xywh[3],
+            frame_shape=self.frame_shape
         )
     
     def apply_warp(self, warp: np.array):

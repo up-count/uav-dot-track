@@ -35,6 +35,7 @@ fi
 
 for video_file in $video_dir; do
     if [ -f "$video_file" ]; then
-        python3 main.py --task pred --video $video_file --name $name --dataset $dataset --cache-det --device cuda $additionalArgs
+        echo "python3 main.py --task pred --video $video_file --name $name --dataset $dataset --cache-det --device cuda $additionalArgs"
+        PYTHONWARNINGS="error" python3 main.py --task pred --video $video_file --name $name --dataset $dataset --cache-det --device cuda $additionalArgs
     fi
 done

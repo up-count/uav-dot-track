@@ -6,6 +6,7 @@ lightning_logs/
 checkpoints/
 results/
 datasets/
+experiments/
 pedestrian_plot.png
 pedestrian_plot.pdf
 

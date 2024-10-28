@@ -104,7 +104,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
             write_video.update(frame)
         if 'viz' in task:
             cv2.imshow('Tracking', cv2.resize(frame, (1920, 1080)))
-            key = cv2.waitKey(0)
+            key = cv2.waitKey(1)
             
             if key == 27:
                 break
