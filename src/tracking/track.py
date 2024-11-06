@@ -181,7 +181,7 @@ class Track:
     @property
     def xyr_pointflow(self):
         if self._pointflow is None:
-            return int(0), int(0), int(0)
+            return int(0), int(0), int(1)
         
         x, y, r = self._pointflow.xyr()
         return int(x), int(y), int(r)
