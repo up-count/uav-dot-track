@@ -13,7 +13,7 @@ from src.tracking.classificator import Classificator
 
 
 class Tracker:
-    def __init__(self, dataset, max_age=5, min_hits=3, iou_threshold=0.4, use_flow = False, flow_scale_factor = 1.0, use_add_cls=False, use_pointflow=False, track_use_cutoff=False):
+    def __init__(self, dataset, max_age=5, min_hits=3, use_flow = False, flow_scale_factor = 1.0, use_add_cls=False, use_pointflow=False, track_use_cutoff=False):
         """ Initialize the tracker.
         
         Parameters
@@ -24,8 +24,6 @@ class Tracker:
             The maximum number of frames a track can be inactive.
         min_hits : int
             The minimum number of hits to confirm a track.
-        iou_threshold : float
-            The threshold to consider a detection as a match.
         use_flow : bool
             Whether to use optical flow to update the tracks state in Kalman filter.
         flow_scale_factor : float
@@ -37,7 +35,6 @@ class Tracker:
         track_use_cutoff : bool
             OUR IMPLEMENTATION: Whether to use the cut-off method to remove the track if the object is not detected for a long time based on the classification model.
         """
-        self.iou_threshold = iou_threshold
         self.use_flow = use_flow
         self.flow_scale_factor = flow_scale_factor
         self.use_add_cls = use_add_cls
@@ -101,7 +98,7 @@ class Tracker:
                 continue
 
             if track._pointflow_counter % 10 == 0 and self.track_use_cutoff:
-                ret, prob = self.classificator.predict(frame, track.xyxy)
+                ret, prob = self.classificator.predict(frame, track.xyr)
 
                 track._pointflow_probs.append(prob)
                     
@@ -119,7 +116,7 @@ class Tracker:
 
             if self.use_add_cls:
                 if t.is_new and t._active_counter >= (self.default_track_params.min_hits-3):
-                    ret, prob = self.classificator.predict(frame, t.xyxy)
+                    ret, prob = self.classificator.predict(frame, t.xyr)
 
                     if ret:
                         t._objectness_list.append(prob)
@@ -145,13 +142,13 @@ class Tracker:
         matches = []
         
         if len(detections) > 0:
-            detections_xyxys = np.array([d.xyxy for d in detections])
-            trackers_xyxys = np.array([t.xyxy for t in self.trackers])
+            detections_xyrs = np.array([d.xyr for d in detections])
+            trackers_xyrs = np.array([t.xyr for t in self.trackers])
             
-            iou_matrix = self._iou_batch(detections_xyxys, trackers_xyxys)
+            dist_matrix = self._dist_batch(detections_xyrs, trackers_xyrs)
             
-            if min(iou_matrix.shape) > 0:
-                y, x = linear_sum_assignment(-iou_matrix)
+            if min(dist_matrix.shape) > 0.0:
+                y, x = linear_sum_assignment(-dist_matrix)
                                
                 matched_indices = np.array(list(zip(y, x)))
             else:
@@ -169,11 +166,12 @@ class Tracker:
                     
             # handle matches
             for m in matched_indices:
-                if iou_matrix[m[0], m[1]] < self.iou_threshold:
+                if dist_matrix[m[0], m[1]] > 0:
+                    matches.append((m[1], detections[m[0]]))
+                else:
                     unmatched_detections.append(m[0])
                     unmatched_trackers.append(m[1])
-                else:
-                    matches.append((m[1], detections[m[0]]))
+                    
         else:
             unmatched_trackers = list(range(len(self.trackers)))
         
@@ -183,21 +181,24 @@ class Tracker:
 
         return matches, unmatched_detections, unmatched_trackers
     
-    # https://github.com/RizwanMunawar/yolov7-object-tracking/blob/main/sort.py#L29C1-L44C14
     @staticmethod
-    def _iou_batch(bb_test, bb_gt):        
-        bb_gt = np.expand_dims(bb_gt, 0)
-        bb_test = np.expand_dims(bb_test, 1)
+    def _dist_batch(xyr_test, xyr_gt):
+        xy_test, maxdist_test = xyr_test[:, :2], xyr_test[:, 2:]
+        xy_gt, maxdist_gt = xyr_gt[:, :2], xyr_gt[:, 2:]
+
+        xy_dist = np.linalg.norm(xy_test[:, None] - xy_gt, axis=-1)
         
-        xx1 = np.maximum(bb_test[...,0], bb_gt[..., 0])
-        yy1 = np.maximum(bb_test[..., 1], bb_gt[..., 1])
-        xx2 = np.minimum(bb_test[..., 2], bb_gt[..., 2])
-        yy2 = np.minimum(bb_test[..., 3], bb_gt[..., 3])
-        w = np.maximum(0., xx2 - xx1)
-        h = np.maximum(0., yy2 - yy1)
-        wh = w * h
-        o = wh / ((bb_test[..., 2] - bb_test[..., 0]) * (bb_test[..., 3] - bb_test[..., 1]) + (bb_gt[..., 2] - bb_gt[..., 0]) * (bb_gt[..., 3] - bb_gt[..., 1]) - wh)
-        return(o)
+        maxdist_test = np.expand_dims(maxdist_test, 1)
+        maxdist_gt = np.expand_dims(maxdist_gt, 0)
+
+        maxdist_dist = np.minimum(maxdist_test, maxdist_gt)[:,:, 0]
+        maxdist_dist *= 2 # diameter
+        
+        xy_dist[xy_dist > maxdist_dist] = maxdist_dist[xy_dist > maxdist_dist]
+
+        xy_dist = 1 - xy_dist / maxdist_dist
+       
+        return xy_dist
 
     def associate_using_pointflow(self, frame: np.ndarray, detections: List[DetectionResult], matches: List[Tuple[int, DetectionResult]], unmatched_detections: List[int], unmatched_trackers: List[int]):
         self.estimate_next_locations(frame, unmatched_trackers)
@@ -211,8 +212,6 @@ class Tracker:
         return matches, unmatched_detections, unmatched_trackers
         
     def estimate_next_locations(self, frame: np.ndarray, unmatched_trackers: List[int]):
-        # [self.trackers[t].estimate_step(self.prev_frame, frame) for t in unmatched_trackers if self.trackers[t].is_confirmed]
-
         params_list = [(self.trackers[t], self.prev_frame, frame) for t in unmatched_trackers if self.trackers[t].is_confirmed]
 
         with ThreadPoolExecutor(max_workers=12) as executor:
@@ -229,13 +228,13 @@ class Tracker:
         if len(confirmed_unmatched_trackers) == 0:
             return matches, unmatched_detections, unmatched_trackers
         
-        detections_xyxys = np.array([detections[d].xyxy for d in unmatched_detections])
-        pointflow_xyxys = np.array([self.trackers[t].xyxy_pointflow for t in confirmed_unmatched_trackers])
+        detections_xyrs = np.array([detections[d].xyr for d in unmatched_detections])
+        pointflow_xyrs = np.array([self.trackers[t].xyr_pointflow for t in confirmed_unmatched_trackers])
 
-        iou_matrix = self._iou_batch(detections_xyxys, pointflow_xyxys)
+        dist_matrix = self._dist_batch(detections_xyrs, pointflow_xyrs)
 
-        if min(iou_matrix.shape) > 0:
-            y, x = linear_sum_assignment(-iou_matrix)  
+        if min(dist_matrix.shape) > 0:
+            y, x = linear_sum_assignment(-dist_matrix)  
             matched_indices = np.array(list(zip(y, x)))
         else:
             matched_indices = np.empty(shape=(0,2))
@@ -244,7 +243,7 @@ class Tracker:
         trackers_to_remove = []
 
         for m in matched_indices:
-            if iou_matrix[m[0], m[1]] >= 0.5*self.iou_threshold:
+            if dist_matrix[m[0], m[1]] > 0.0:
                 tr_idx = confirmed_unmatched_trackers[m[1]]
 
                 det = detections[unmatched_detections[m[0]]]
@@ -266,13 +265,13 @@ class Tracker:
         if len(confirmed_unmatched_trackers) == 0:
             return matches, unmatched_trackers
         
-        trackers_xyxys = np.array([self.trackers[t].xyxy for t in confirmed_unmatched_trackers])
-        pointflow_xyxys = np.array([self.trackers[t].xyxy_pointflow for t in confirmed_unmatched_trackers])
+        trackers_xyrs = np.array([self.trackers[t].xyr for t in confirmed_unmatched_trackers])
+        pointflow_xyrs = np.array([self.trackers[t].xyr_pointflow for t in confirmed_unmatched_trackers])
 
-        iou_matrix = self._iou_batch(pointflow_xyxys, trackers_xyxys)
+        dist_matrix = self._dist_batch(pointflow_xyrs, trackers_xyrs)
 
-        if min(iou_matrix.shape) > 0:
-            y, x = linear_sum_assignment(-iou_matrix)  
+        if min(dist_matrix.shape) > 0:
+            y, x = linear_sum_assignment(-dist_matrix)  
             matched_indices = np.array(list(zip(y, x)))
         else:
             matched_indices = np.empty(shape=(0,2))
@@ -280,15 +279,14 @@ class Tracker:
         trackers_to_remove = []
 
         for m in matched_indices:
-            if iou_matrix[m[0], m[1]] >= 0.5*self.iou_threshold:
+            if dist_matrix[m[0], m[1]] > 0.0:
                 tr_idx = confirmed_unmatched_trackers[m[0]]
                 tr = self.trackers[tr_idx]
 
                 det = DetectionResult(
-                    x=tr.xywh_pointflow[0],
-                    y=tr.xywh_pointflow[1],
-                    w=tr.xywh[2],
-                    h=tr.xywh[3],
+                    x=tr.xyr_pointflow[0],
+                    y=tr.xyr_pointflow[1],
+                    r=tr.xyr_pointflow[2],
                     label=tr.label,
                     confidence=tr.confidence,
                     frame_shape=self.frame_shape,

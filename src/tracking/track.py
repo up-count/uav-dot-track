@@ -31,22 +31,15 @@ class PointFlowWrapper:
         if method == 'csrt':
             self.params = cv2.TrackerCSRT_Params()
             self.params.use_gray = True
-            # self.params.use_channel_weights = False
-            # self.params.use_segmentation = False
-            # self.params.use_hog = True
-            # self.params.use_color_names = False
-            # self.params.use_rgb = False
-            self.params.template_size = int(2*max(pred.xywh[2:]))
-            # self.params.number_of_scales = 3
+            self.params.template_size = int(4*pred.xyr[2])
 
             self.tracker = cv2.TrackerCSRT.create(self.params)
 
     def update(self, prev_frame: np.ndarray, frame: np.ndarray, track: 'Track'):
-        _, _, w, h = track.xywh
-        x1, y1, _, _ = track.xyxy
+        x, y, r = track.xyr
         
         if not self._initialized:
-            bbox = (x1, y1, w, h)
+            bbox = (x-r, y-r, 2*r, 2*r)
             self.tracker.init(prev_frame, bbox)
             self._initialized = True
 
@@ -63,8 +56,7 @@ class PointFlowWrapper:
                 confidence=track.confidence,
                 x=new_xc,
                 y=new_yc,
-                w=w,
-                h=h,
+                r=r,
                 frame_shape=track._pred[-1].frame_shape,
                 from_pointflow=True,
             )
@@ -72,17 +64,11 @@ class PointFlowWrapper:
             self._status = None
                 
 
-    def xywh(self):
+    def xyr(self):
         if self._status is None:
-            return 0, 0, 0, 0
+            return 0, 0, 1
         else:
-            return self._status.xywh
-
-    def xyxy(self):
-        if self._status is None:
-            return 0, 0, 0, 0
-        else:
-            return self._status.xyxy
+            return self._status.xyr
 
 class Track:
     def __init__(self, track_id: int, pred: DetectionResult, state: TrackState, track_params: TrackParams) -> None:
@@ -188,30 +174,17 @@ class Track:
         return self._state.is_dead()
 
     @property
-    def xywh(self):
-        x, y, w, h = self._pos.xywh
-        return int(x), int(y), int(w), int(h)
+    def xyr(self):
+        x, y, r = self._pos.xyr
+        return int(x), int(y), int(r)
     
     @property
-    def xyxy(self):
-        x1, y1, x2, y2 = self._pos.xyxy
-        return int(x1), int(y1), int(x2), int(y2)
-    
-    @property
-    def xywh_pointflow(self):
+    def xyr_pointflow(self):
         if self._pointflow is None:
-            return int(0), int(0), int(0), int(0)
+            return int(0), int(0), int(0)
         
-        x, y, w, h = self._pointflow.xywh()
-        return int(x), int(y), int(w), int(h)
-    
-    @property
-    def xyxy_pointflow(self):
-        if self._pointflow is None:
-            return int(0), int(0), int(0), int(0)
-        
-        x1, y1, x2, y2 = self._pointflow.xyxy()
-        return int(x1), int(y1), int(x2), int(y2)
+        x, y, r = self._pointflow.xyr()
+        return int(x), int(y), int(r)
     
     @property
     def confidence(self):
@@ -233,31 +206,21 @@ class Track:
         self._pred = self._pred[-50:]
 
     def _remove_if_out_of_frame(self):
-        x, y, w, h = self.xywh
-        x1, y1, x2, y2 = self.xyxy
+        x, y, r = self.xyr
+
         frame_height, frame_width = self._track_params.frame_shape[:2]
 
-        if w < 5 or h < 5:
+        if r < 5 or r < 5:
             self._prev_state = self._state
             self._state = TrackState.DEAD
             return
         
-        if x1 < 0 or y1 < 0:
+        if x-r < 0 or y-r < 0:
             self._prev_state = self._state
             self._state = TrackState.DEAD
             return
-        
-        if x2 < x1 or y2 < y1:
-            self._prev_state = self._state
-            self._state = TrackState.DEAD
-            return
-        
-        if x2 >= frame_width or y2 >= frame_height:
-            self._prev_state = self._state
-            self._state = TrackState.DEAD
-            return
-        
-        if x1 + w >= frame_width or y1 + h >= frame_height:
+                
+        if x+r >= frame_width or y+r >= frame_height:
             self._prev_state = self._state
             self._state = TrackState.DEAD
             return
@@ -266,11 +229,11 @@ class Track:
         if self.is_confirmed:
             if history_limit > 0:
                 for i in range(1, len(self._pred)):
-                    x, y, _, _ = self._pred[i-1].xywh
+                    x, y, _ = self._pred[i-1].xyr
 
                     cv2.circle(frame, (int(x), int(y)), int(4*pointsize), self.color, -1)
  
-            x, y, _, _ = self.xywh
+            x, y, _ = self.xyr
             cv2.circle(frame, (int(x), int(y)), int(8*pointsize), self.color, -1)
         
         return frame

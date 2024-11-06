@@ -118,26 +118,48 @@ def main(dataset):
     print(f'Alg'.ljust(30), end=' | '); 
 
     for k, v in stats[list(stats.keys())[0]].items():
-        print(f'{k}'.ljust(10), end=' | ')
+        if k == 'TRCount' or k == 'TRRelCount':
+            print(f'{k}'.ljust(15), end=' | ')
+        else:
+            print(f'{k}'.ljust(10), end=' | ')
 
     print()
-    print('-' * 140)
+    print('-' * 170)
 
     # sort by TRRelCount
     stats = {k: v for k, v in sorted(stats.items(), key=lambda item: np.mean(item[1]['TRRelCount']), reverse=True)}
 
     for alg, st in stats.items():
         
-        print(f'{alg}'.ljust(30), end=' | ')
+        if '+filtered' not in alg:
+            print(f'{alg}'.ljust(30), end=' | ')
 
-        for k, v in st.items():
-            if k == 'GT_IDs' or k == 'IDs' or k == 'IDSW':
-                print(f'{np.sum(np.array(v)):d}'.ljust(10), end=' | ')
-            else:
-                print(f'{np.mean(np.array(v)):.2f}'.ljust(10), end=' | ')
+            for k, v in st.items():
+                if k == 'GT_IDs' or k == 'IDs' or k == 'IDSW':
+                    print(f'{np.sum(np.array(v)):d}'.ljust(10), end=' | ')
+                elif k == 'TRCount' or k == 'TRRelCount':
+                    print(f'{np.mean(np.array(v)):.2f} +- {np.std(np.array(v)):.2f}'.ljust(15), end=' | ')
+                else:
+                    print(f'{np.mean(np.array(v)):.2f}'.ljust(10), end=' | ')
 
-        print()
+            print()
 
+    print('-' * 170)
+
+    for alg, st in stats.items():
+        
+        if '+filtered' in alg:
+            print(f'{alg}'.ljust(30), end=' | ')
+
+            for k, v in st.items():
+                if k == 'GT_IDs' or k == 'IDs' or k == 'IDSW':
+                    print(f'{np.sum(np.array(v)):d}'.ljust(10), end=' | ')
+                elif k == 'TRCount' or k == 'TRRelCount':
+                    print(f'{np.mean(np.array(v)):.2f} +- {np.std(np.array(v)):.2f}'.ljust(15), end=' | ')
+                else:
+                    print(f'{np.mean(np.array(v)):.2f}'.ljust(10), end=' | ')
+
+            print()
 
 if __name__ == '__main__':
     main()

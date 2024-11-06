@@ -23,13 +23,12 @@ from src.utils.video_writer import VideoWriter
 @click.option('--cache-dir', type=str, help='Path to the cache directory', default='./cache')
 @click.option('--track-max-age', type=int, help='Max age of the track', default=60) # 2 seconds
 @click.option('--track-min-hits', type=int, help='Min hits of the track', default=30) # 1 second
-@click.option('--track-iou-threshold', type=float, help='IOU threshold', default=0.2)
 @click.option('--track-cmc-flow', type=bool, is_flag=True, help='Use optical flow')
 @click.option('--track-use-alt', type=bool, is_flag=True, help='Use altitude information')
 @click.option('--track-use-pointflow', type=bool, is_flag=True, help='Use pointflow for tracking')
 @click.option('--track-use-add-cls', type=bool, is_flag=True, help='Use additional classification for tracking')
 @click.option('--track-use-cutoff', type=bool, is_flag=True, help='Use dynamic cut-off for tracking')
-def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age, track_min_hits, track_iou_threshold, track_cmc_flow, track_use_alt, track_use_pointflow, track_use_add_cls, track_use_cutoff):
+def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age, track_min_hits, track_cmc_flow, track_use_alt, track_use_pointflow, track_use_add_cls, track_use_cutoff):
     if not os.path.exists(video):
         print(f'Video file {video} does not exist')
         return
@@ -75,7 +74,6 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
         dataset=dataset,
         max_age=track_max_age,
         min_hits=track_min_hits,
-        iou_threshold=track_iou_threshold,
         use_flow = track_cmc_flow,
         use_add_cls=track_use_add_cls,
         use_pointflow=track_use_pointflow,

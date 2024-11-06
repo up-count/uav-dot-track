@@ -27,18 +27,16 @@ class Classificator(nn.Module):
 
         print(f'[LOGS] Classificator model loaded from {model_path}')
 
-    def predict(self, frame, xyxy):
-        x1, y1, x2, y2 = xyxy
+    def predict(self, frame, xyr):
+        x, y, r = xyr
 
-        if x2-x1 < 10 or y2-y1 < 10:
+        if r < 5 or r < 5:
             return False, 0.0
 
-        x1 = int(max(0, x1))
-        y1 = int(max(0, y1))
-        x2 = int(min(frame.shape[1], x2))
-        y2 = int(min(frame.shape[0], y2))
-
-        
+        x1 = int(max(0, x-r))
+        y1 = int(max(0, y-r))
+        x2 = int(min(frame.shape[1], x+r))
+        y2 = int(min(frame.shape[0], y+r))
 
         roi = frame[y1:y2, x1:x2]
         roi = cv2.resize(roi, (48, 48))
