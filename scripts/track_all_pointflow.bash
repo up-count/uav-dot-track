@@ -22,14 +22,19 @@ fi
 name="our"
 additionalArgs=""
 
-if [ "$2" == "--track-use-add-cls" ] || [ "$3" == "--track-use-add-cls" ]; then
+if [ "$2" == "--track-use-add-cls" ] || [ "$3" == "--track-use-add-cls" ] || [ "$4" == "--track-use-add-cls" ]; then
     additionalArgs=$additionalArgs" --track-use-add-cls"
     name=$name"+cls"
 fi
 
-if [ "$2" == "--track-use-pointflow" ] || [ "$3" == "--track-use-pointflow" ]; then
+if [ "$2" == "--track-use-pointflow" ] || [ "$3" == "--track-use-pointflow" ] || [ "$4" == "--track-use-pointflow" ]; then
     additionalArgs=$additionalArgs" --track-use-pointflow"
     name=$name"+flow"
+fi
+
+if [ "$2" == "--track-use-cutoff" ] || [ "$3" == "--track-use-cutoff" ] || [ "$4" == "--track-use-cutoff" ]; then
+    additionalArgs=$additionalArgs" --track-use-cutoff"
+    name=$name"+cutoff"
 fi
 
 

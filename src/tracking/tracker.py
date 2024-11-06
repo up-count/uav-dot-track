@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import cv2
 from scipy.optimize import linear_sum_assignment
+from concurrent.futures import ThreadPoolExecutor
 
 from src.tracking.detection_result import DetectionResult
 from src.tracking.sparse_optical_flow import SparseOpticalFlow
@@ -12,7 +13,7 @@ from src.tracking.classificator import Classificator
 
 
 class Tracker:
-    def __init__(self, dataset, max_age=5, min_hits=3, iou_threshold=0.4, use_flow = False, flow_scale_factor = 1.0, use_add_cls=False, use_pointflow=False):
+    def __init__(self, dataset, max_age=5, min_hits=3, iou_threshold=0.4, use_flow = False, flow_scale_factor = 1.0, use_add_cls=False, use_pointflow=False, track_use_cutoff=False):
         """ Initialize the tracker.
         
         Parameters
@@ -33,12 +34,15 @@ class Tracker:
             OUR IMPLEMENTATION: Whether to use the additional classification model to classify the object existence before confirming new tracks.
         use_pointflow : bool
             OUR IMPLEMENTATION: Whether to use the pointflow method to associate unmatched tracks and detections to make trajectories more stable.
+        track_use_cutoff : bool
+            OUR IMPLEMENTATION: Whether to use the cut-off method to remove the track if the object is not detected for a long time based on the classification model.
         """
         self.iou_threshold = iou_threshold
         self.use_flow = use_flow
         self.flow_scale_factor = flow_scale_factor
         self.use_add_cls = use_add_cls
         self.use_pointflow = use_pointflow
+        self.track_use_cutoff = track_use_cutoff
         
         self.trackers = []
         self.tracks_counter = 0
@@ -51,26 +55,19 @@ class Tracker:
             min_hits=min_hits,
             use_add_cls=use_add_cls,
             use_pointflow=use_pointflow,
+            pointflow_method='csrt',
         )
         
         if self.use_flow:
             self.flow_estimator = SparseOpticalFlow(downscale_factor=flow_scale_factor)
 
-        if self.use_add_cls:
+        if self.use_add_cls or self.track_use_cutoff:
             self.classificator = Classificator(f'./classification/best_model_epoch_{dataset}.pth')
 
         if self.use_pointflow:
             self.lk_params = dict( winSize  = (15, 15),
                   maxLevel = 3,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 0.01))
-            
-            self.params = cv2.TrackerCSRT_Params()
-            self.params.window_function = "hann"  # Hann window function
-            self.params.padding = 3.0             # Increase padding for larger search area
-            self.params.template_size = 200       # Set template size
-            self.params.gsl_sigma = 1.0           # Gaussian spatial filter
-            self.params.filter_lr = 0.02          # Learning rate
-            self.params.num_hog_channels_used = 9 # Number of HOG channels
     
     def __call__(self, frame, frame_index, predictions):
         return self._update(frame, frame_index, predictions)
@@ -101,6 +98,19 @@ class Tracker:
             
             if track.is_dead:
                 self.trackers.remove(track)
+                continue
+
+            if track._pointflow_counter % 10 == 0 and self.track_use_cutoff:
+                ret, prob = self.classificator.predict(frame, track.xyxy)
+
+                track._pointflow_probs.append(prob)
+                    
+                if len(track._pointflow_probs) >= 3:
+                    if np.mean(track._pointflow_probs) < 0.2:
+                        self.trackers.remove(track)
+                    else:
+                        track._pointflow_probs = track._pointflow_probs[1:]
+                continue
             
         matched, unmatched_dets, unmatched_tracks = self._associate_detections_to_trackers(frame, predictions, warp=H if self.use_flow else None)
         
@@ -168,21 +178,8 @@ class Tracker:
             unmatched_trackers = list(range(len(self.trackers)))
         
         if self.use_pointflow and len(unmatched_trackers) > 0:
-            matches_flow, unmatched_detections_flow, unmatched_trackers_flow = \
+            matches, unmatched_detections, unmatched_trackers = \
                 self.associate_using_pointflow(frame, detections, matches, unmatched_detections, unmatched_trackers)
-
-            if len(unmatched_trackers) < len(unmatched_trackers_flow):
-                raise ValueError("The number of unmatched trackers should be not increased after using pointflow method.")
-            
-            if len(unmatched_detections_flow) < len(unmatched_detections):
-                raise ValueError("The number of unmatched detections should be not increased after using pointflow method.")
-            
-            if len(matches_flow) > len(matches):
-                raise ValueError("The number of matches should be not decreased after using pointflow method.")
-
-            matches = matches_flow
-            unmatched_detections = unmatched_detections_flow
-            unmatched_trackers = unmatched_trackers_flow
 
         return matches, unmatched_detections, unmatched_trackers
     
@@ -203,44 +200,104 @@ class Tracker:
         return(o)
 
     def associate_using_pointflow(self, frame: np.ndarray, detections: List[DetectionResult], matches: List[Tuple[int, DetectionResult]], unmatched_detections: List[int], unmatched_trackers: List[int]):
-        raise NotImplementedError("This method should be implemented in the child class.")
-        
-        
-    def predict_next_locations_using_pointflow(self, frame: np.ndarray, unmatched_trackers: List[int]):
-        trackers_ids_to_update = np.array([i for i in unmatched_trackers if self.trackers[i].is_confirmed])
+        self.estimate_next_locations(frame, unmatched_trackers)
 
-        if len(trackers_ids_to_update) == 0:
-            print(f'[INFO] No trackers to update using pointflow.')
-            return
+        if len(unmatched_detections) > 0:
+            matches, unmatched_detections, unmatched_trackers = self.associate_detections_using_pointflow(matches, detections, unmatched_detections, unmatched_trackers)
+
+        if len(unmatched_trackers) > 0:
+            matches, unmatched_trackers = self.associate_trackers_using_pointflow(matches, unmatched_trackers)
+
+        return matches, unmatched_detections, unmatched_trackers
+        
+    def estimate_next_locations(self, frame: np.ndarray, unmatched_trackers: List[int]):
+        # [self.trackers[t].estimate_step(self.prev_frame, frame) for t in unmatched_trackers if self.trackers[t].is_confirmed]
+
+        params_list = [(self.trackers[t], self.prev_frame, frame) for t in unmatched_trackers if self.trackers[t].is_confirmed]
+
+        with ThreadPoolExecutor(max_workers=12) as executor:
+            # Map the computation to the thread pool
+            futures = [executor.submit(lambda p: p[0].estimate_step(p[1], p[2]), params) for params in params_list]
+
+            # Collect the results
+            for future in futures:
+                future.result()
+
+    def associate_detections_using_pointflow(self, matches: List[Tuple[int, DetectionResult]], detections: List[DetectionResult], unmatched_detections: List[int], unmatched_trackers: List[int]):
+        confirmed_unmatched_trackers = [t for t in unmatched_trackers if self.trackers[t].is_confirmed]
+
+        if len(confirmed_unmatched_trackers) == 0:
+            return matches, unmatched_detections, unmatched_trackers
+        
+        detections_xyxys = np.array([detections[d].xyxy for d in unmatched_detections])
+        pointflow_xyxys = np.array([self.trackers[t].xyxy_pointflow for t in confirmed_unmatched_trackers])
+
+        iou_matrix = self._iou_batch(detections_xyxys, pointflow_xyxys)
+
+        if min(iou_matrix.shape) > 0:
+            y, x = linear_sum_assignment(-iou_matrix)  
+            matched_indices = np.array(list(zip(y, x)))
         else:
-            print(f'[INFO] Tracking {len(trackers_ids_to_update)} trackers using pointflow.')
+            matched_indices = np.empty(shape=(0,2))
+
+        detections_to_remove = []
+        trackers_to_remove = []
+
+        for m in matched_indices:
+            if iou_matrix[m[0], m[1]] >= 0.5*self.iou_threshold:
+                tr_idx = confirmed_unmatched_trackers[m[1]]
+
+                det = detections[unmatched_detections[m[0]]]
+                det.from_pointflow = True
+
+                matches.append((tr_idx, det))
+                detections_to_remove.append(unmatched_detections[m[0]])
+                trackers_to_remove.append(tr_idx)
+
+        unmatched_detections = [d for i, d in enumerate(unmatched_detections) if i not in detections_to_remove]
+        unmatched_trackers = [t for i, t in enumerate(unmatched_trackers) if i not in trackers_to_remove]
+
+        return matches, unmatched_detections, unmatched_trackers
+
+
+    def associate_trackers_using_pointflow(self, matches: List[Tuple[int, DetectionResult]], unmatched_trackers: List[int]):
+        confirmed_unmatched_trackers = [t for t in unmatched_trackers if self.trackers[t].is_confirmed]
+
+        if len(confirmed_unmatched_trackers) == 0:
+            return matches, unmatched_trackers
         
-        for tracker_id in trackers_ids_to_update:
-            tracker = cv2.TrackerCSRT.create(self.params)
+        trackers_xyxys = np.array([self.trackers[t].xyxy for t in confirmed_unmatched_trackers])
+        pointflow_xyxys = np.array([self.trackers[t].xyxy_pointflow for t in confirmed_unmatched_trackers])
 
-            _, _, w, h = self.trackers[tracker_id].xywh
-            x1, y1, _, _ = self.trackers[tracker_id].xyxy
+        iou_matrix = self._iou_batch(pointflow_xyxys, trackers_xyxys)
 
-            bbox = (x1, y1, w, h)
-            tracker.init(self.prev_frame, bbox)
-            ret, bbox = tracker.update(frame)
+        if min(iou_matrix.shape) > 0:
+            y, x = linear_sum_assignment(-iou_matrix)  
+            matched_indices = np.array(list(zip(y, x)))
+        else:
+            matched_indices = np.empty(shape=(0,2))
 
-            if ret:
-                new_x1, new_y1, _, _ = bbox
+        trackers_to_remove = []
 
-                new_x = new_x1 + w // 2
-                new_y = new_y1 + h // 2
+        for m in matched_indices:
+            if iou_matrix[m[0], m[1]] >= 0.5*self.iou_threshold:
+                tr_idx = confirmed_unmatched_trackers[m[0]]
+                tr = self.trackers[tr_idx]
 
-                self.trackers[tracker_id]._pos_pointflow = DetectionResult(
-                    label=self.trackers[tracker_id].label,
-                    confidence=self.trackers[tracker_id].confidence,
-                    x=new_x,
-                    y=new_y,
-                    w=w,
-                    h=h,
+                det = DetectionResult(
+                    x=tr.xywh_pointflow[0],
+                    y=tr.xywh_pointflow[1],
+                    w=tr.xywh[2],
+                    h=tr.xywh[3],
+                    label=tr.label,
+                    confidence=tr.confidence,
                     frame_shape=self.frame_shape,
                     from_pointflow=True,
                 )
-            else:
-                self.trackers[tracker_id]._pos_pointflow = None
-                continue
+
+                matches.append((tr_idx, det))
+                trackers_to_remove.append(tr_idx)
+
+        unmatched_trackers = [t for t in unmatched_trackers if t not in trackers_to_remove]
+
+        return matches, unmatched_trackers

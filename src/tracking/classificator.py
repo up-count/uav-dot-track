@@ -9,14 +9,14 @@ class SimpleCNN(nn.Module):
         self.conv1 = nn.Conv2d(3, 8, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc = nn.AdaptiveAvgPool1d(1)
+        self.fc = nn.Linear(16 * 12 * 12, 1)
 
     def forward(self, x):
         x = self.pool(torch.relu(self.conv1(x)))
         x = self.pool(torch.relu(self.conv2(x)))
-        x = x.reshape(x.shape[0], -1)
+        x = x.view(-1, 16 * 12 * 12)
         x = self.fc(x)
-        return torch.sigmoid(x)
+        return x
 
 class Classificator(nn.Module):
     def __init__(self, model_path):
@@ -26,7 +26,6 @@ class Classificator(nn.Module):
         self.model.eval()
 
         print(f'[LOGS] Classificator model loaded from {model_path}')
-
 
     def predict(self, frame, xyxy):
         x1, y1, x2, y2 = xyxy
@@ -49,6 +48,7 @@ class Classificator(nn.Module):
 
         with torch.no_grad():
             output = self.model(torch.tensor(roi).float())
+            output = torch.sigmoid(output)
             prob = output[0][0].item()
 
         return True, prob

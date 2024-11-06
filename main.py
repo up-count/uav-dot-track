@@ -28,7 +28,8 @@ from src.utils.video_writer import VideoWriter
 @click.option('--track-use-alt', type=bool, is_flag=True, help='Use altitude information')
 @click.option('--track-use-pointflow', type=bool, is_flag=True, help='Use pointflow for tracking')
 @click.option('--track-use-add-cls', type=bool, is_flag=True, help='Use additional classification for tracking')
-def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age, track_min_hits, track_iou_threshold, track_cmc_flow, track_use_alt, track_use_pointflow, track_use_add_cls):
+@click.option('--track-use-cutoff', type=bool, is_flag=True, help='Use dynamic cut-off for tracking')
+def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age, track_min_hits, track_iou_threshold, track_cmc_flow, track_use_alt, track_use_pointflow, track_use_add_cls, track_use_cutoff):
     if not os.path.exists(video):
         print(f'Video file {video} does not exist')
         return
@@ -78,6 +79,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
         use_flow = track_cmc_flow,
         use_add_cls=track_use_add_cls,
         use_pointflow=track_use_pointflow,
+        track_use_cutoff=track_use_cutoff,
         flow_scale_factor=2.0 if dataset == 'dronecrowd' else 4.0,
     )
     
