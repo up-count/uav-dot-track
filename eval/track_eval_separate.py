@@ -69,12 +69,15 @@ def main(dataset):
             'IDF1': [],
             'GT_IDs': [],
             'IDs': [],
+            'SEQs': [],
         }
         
         for seq in sequences:
             if seq == 'COMBINED_SEQ':
                 continue
             else:
+                metrics['SEQs'] += [seq]
+
                 for metric_group in x[0]['MotChallenge2DBox'][alg][seq]['pedestrian'].keys():
                     for metric in x[0]['MotChallenge2DBox'][alg][seq]['pedestrian'][metric_group].keys():
                         
@@ -115,51 +118,31 @@ def main(dataset):
         st['TRCount'] = TRCount
         st['TRRelCount'] = TRRelCount
 
-    print(f'Alg'.ljust(30), end=' | '); 
-
-    for k, v in stats[list(stats.keys())[0]].items():
-        if k == 'TRCount' or k == 'TRRelCount':
-            print(f'{k}'.ljust(15), end=' | ')
-        else:
-            print(f'{k}'.ljust(10), end=' | ')
-
-    print()
-    print('-' * 170)
-
-    # sort by TRRelCount
-    stats = {k: v for k, v in sorted(stats.items(), key=lambda item: np.mean(item[1]['TRRelCount']), reverse=True)}
-
     for alg, st in stats.items():
         
         if 'filtered_' not in alg:
-            print(f'{alg}'.ljust(30), end=' | ')
+            print(f'Algorithm: {alg}')
 
-            for k, v in st.items():
-                if k == 'GT_IDs' or k == 'IDs' or k == 'IDSW':
-                    print(f'{np.sum(np.array(v)):d}'.ljust(10), end=' | ')
-                elif k == 'TRCount' or k == 'TRRelCount':
-                    print(f'{np.mean(np.array(v)):.2f} +- {np.std(np.array(v)):.2f}'.ljust(15), end=' | ')
-                else:
-                    print(f'{np.mean(np.array(v)):.2f}'.ljust(10), end=' | ')
-
+            print(f'Sequence'.ljust(10), end=' | ')
+            print(f'HOTA'.ljust(10), end=' | ')
+            print(f'IDSW'.ljust(10), end=' | ')
+            print(f'TRCount'.ljust(15), end=' | ')
+            print(f'TRRelCount'.ljust(15), end=' | ')
             print()
+
+            for i, seq in enumerate(list(st["SEQs"])):
+ 
+                print(f'{st["SEQs"][i]}'.ljust(10), end=' | ')
+                print(f'{st["HOTA"][i]:.2f}'.ljust(10), end=' | ')
+                print(f'{st["IDSW"][i]}'.ljust(10), end=' | ')
+                print(f'{st["TRCount"][i]}'.ljust(15), end=' | ')
+                print(f'{st["TRRelCount"][i]:.2f}'.ljust(15), end=' | ')
+                print()
 
     print('-' * 170)
+    print()
 
-    for alg, st in stats.items():
-        
-        if 'filtered_' in alg:
-            print(f'{alg}'.ljust(30), end=' | ')
 
-            for k, v in st.items():
-                if k == 'GT_IDs' or k == 'IDs' or k == 'IDSW':
-                    print(f'{np.sum(np.array(v)):d}'.ljust(10), end=' | ')
-                elif k == 'TRCount' or k == 'TRRelCount':
-                    print(f'{np.mean(np.array(v)):.2f} +- {np.std(np.array(v)):.2f}'.ljust(15), end=' | ')
-                else:
-                    print(f'{np.mean(np.array(v)):.2f}'.ljust(10), end=' | ')
-
-            print()
 
 if __name__ == '__main__':
     main()

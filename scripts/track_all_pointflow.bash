@@ -29,7 +29,7 @@ fi
 
 if [ "$2" == "--track-use-pointflow" ] || [ "$3" == "--track-use-pointflow" ] || [ "$4" == "--track-use-pointflow" ]; then
     additionalArgs=$additionalArgs" --track-use-pointflow"
-    name=$name"+flow"
+    name=$name"+dcf"
 fi
 
 if [ "$2" == "--track-use-cutoff" ] || [ "$3" == "--track-use-cutoff" ] || [ "$4" == "--track-use-cutoff" ]; then
@@ -41,6 +41,6 @@ fi
 for video_file in $video_dir; do
     if [ -f "$video_file" ]; then
         echo "python3 main.py --task pred --video $video_file --name $name --dataset $dataset --cache-det --device cuda --track-use-alt --track-cmc-flow $additionalArgs"
-        PYTHONWARNINGS="error" python3 main.py --task pred --video $video_file --name $name --dataset $dataset --cache-det --device cuda --track-use-alt --track-cmc-flow $additionalArgs
+        python3 main.py --task pred --video $video_file --name $name --dataset $dataset --cache-det --device cuda --track-use-alt --track-cmc-flow $additionalArgs
     fi
 done

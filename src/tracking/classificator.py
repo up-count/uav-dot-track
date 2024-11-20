@@ -32,6 +32,8 @@ class Classificator(nn.Module):
 
         if r < 5 or r < 5:
             return False, 0.0
+        
+        r = int(r * 1.5)
 
         x1 = int(max(0, x-r))
         y1 = int(max(0, y-r))

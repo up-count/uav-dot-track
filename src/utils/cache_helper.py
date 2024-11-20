@@ -6,6 +6,8 @@ import os
 import sys
 import torch
 from enum import Enum
+import zarr
+from numcodecs import Blosc
 
 from src.utils.image import preprocess_image
 
@@ -20,7 +22,7 @@ class CacheOptions(Enum):
 
 
 class CacheHelper:
-    def __init__(self, cache_det: bool, cache_dir: str, file_name: str, video_resolution: Tuple[int, int]) -> None:
+    def __init__(self, cache_det: bool, cache_dir: str, file_name: str, video_size: int, video_resolution: Tuple[int, int]) -> None:
         self.cache_det = cache_det
         self.cache_dir = Path(os.path.join(cache_dir, file_name))
         self.cache_does_not_exist = not self.cache_dir.exists()
@@ -30,15 +32,20 @@ class CacheHelper:
         self.regressor = None
         self.config = None
         
+        self.decoder_dataset = None
+        self.compressor = Blosc(cname='lz4', clevel=5, shuffle=Blosc.SHUFFLE)
+        
         if not self.cache_det:
             self.status = CacheOptions.NO_USE
             print(f'[LOGS] Detection caching disabled')
         elif self.cache_does_not_exist:
             self.status = CacheOptions.CREATE
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.decoder_dataset = zarr.open(str(self.cache_dir / 'decoder_output.zarr'), mode='w', shape=(video_size, 16, 544, 960), chunks=(1, 16, 544, 960), dtype=np.float16, compressor=self.compressor)
             print(f'[LOGS] Cache directory created at {self.cache_dir}')
         else:
             self.status = CacheOptions.USE
+            self.decoder_dataset = zarr.open(str(self.cache_dir / 'decoder_output.zarr'), mode='r')
             print(f'[LOGS] Cache directory found at {self.cache_dir}')
         
     def set_model(self, model_path: str, engine: str, config: dict) -> None:
@@ -74,7 +81,7 @@ class CacheHelper:
             if self.regressor.device.type == 'cuda':
                 input_tensor = input_tensor.cuda()
                 
-            dot_count = self.regressor.forward(input_tensor)[0]
+            dot_count, _, _, decoder_output = self.regressor.forward(input_tensor)
             
             points = self.regressor.postprocessing(dot_count, thresh=0.2)[0]
             points[:, 3] = torch.sigmoid(points[:, 3])
@@ -84,17 +91,20 @@ class CacheHelper:
             concat[:, 0] = concat[:, 0] * self.video_w / self.model_w
             concat[:, 1] = concat[:, 1] * self.video_h / self.model_h
             
-            return concat
+            return concat, decoder_output.cpu().numpy()
 
     def __call__(self, frame_id, image):
         if self.status == CacheOptions.NO_USE:
             return self.infer_model(image)
+        
         elif self.status == CacheOptions.CREATE:
-            concat = self.infer_model(image)
+            concat, decoder_output = self.infer_model(image)
             np.save(self.cache_dir / f'{frame_id:05d}.npy', concat)
+            self.decoder_dataset[frame_id] = decoder_output.astype(np.float16)[0]
             
-            return concat
+            return concat, decoder_output
         else:
             concat = np.load(self.cache_dir / f'{frame_id:05d}.npy')
-            
-            return concat
+            decoder_output = self.decoder_dataset[frame_id].reshape(1, 16, 544, 960).astype(np.float32)
+
+            return concat, decoder_output

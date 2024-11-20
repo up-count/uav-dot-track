@@ -45,6 +45,7 @@ class Tracker:
         self.tracks_counter = 0
         self.initialized = False
         self.prev_frame = None
+        self.prev_decoder_output = None
         self.frame_shape = None
                 
         self.default_track_params = TrackParams(
@@ -52,7 +53,7 @@ class Tracker:
             min_hits=min_hits,
             use_add_cls=use_add_cls,
             use_pointflow=use_pointflow,
-            pointflow_method='csrt',
+            pointflow_method='deep_eco', # deep_eco or csrt
         )
         
         if self.use_flow:
@@ -66,24 +67,26 @@ class Tracker:
                   maxLevel = 3,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 0.01))
     
-    def __call__(self, frame, frame_index, predictions):
-        return self._update(frame, frame_index, predictions)
+    def __call__(self, frame, decoder_output, frame_index, predictions):
+        return self._update(frame, decoder_output, frame_index, predictions)
     
     def _add(self, predictions: List[DetectionResult], state=TrackState.NEW):
         for pred in predictions:
             self.tracks_counter += 1
             self.trackers.append(Track(self.tracks_counter, pred, state, self.default_track_params))
     
-    def _update(self, frame: np.ndarray, frame_index: int, predictions: List[DetectionResult]):        
+    def _update(self, frame: np.ndarray, decoder_output: np.ndarray, frame_index: int, predictions: List[DetectionResult]):    
         if self.prev_frame is None:
             self.prev_frame = frame
             self.frame_shape = frame.shape
             self.default_track_params.frame_shape = frame.shape
+            self.prev_decoder_output = decoder_output
         
         if not self.initialized and len(predictions) > 0:
             self._add(predictions, state=TrackState.CONFIRMED)
             self.initialized = True
             self.prev_frame = frame
+            self.prev_decoder_output = decoder_output
             
             return [track for track in self.trackers if track.is_confirmed]
 
@@ -97,19 +100,20 @@ class Tracker:
                 self.trackers.remove(track)
                 continue
 
-            if track._pointflow_counter % 10 == 0 and self.track_use_cutoff:
+            if track._pointflow_counter % 5 == 0 and self.track_use_cutoff:
                 ret, prob = self.classificator.predict(frame, track.xyr)
 
                 track._pointflow_probs.append(prob)
                     
-                if len(track._pointflow_probs) >= 3:
-                    if np.mean(track._pointflow_probs) < 0.2:
-                        self.trackers.remove(track)
+                if len(track._pointflow_probs) >= 5:
+                    if np.mean(track._pointflow_probs) < 0.5:
+                        track.mark_missed()
+                        # self.trackers.remove(track)
                     else:
                         track._pointflow_probs = track._pointflow_probs[1:]
                 continue
             
-        matched, unmatched_dets, unmatched_tracks = self._associate_detections_to_trackers(frame, predictions, warp=H if self.use_flow else None)
+        matched, unmatched_dets, unmatched_tracks = self._associate_detections_to_trackers(frame, decoder_output, predictions, warp=H if self.use_flow else None)
         
         for track_idx, pred in matched:
             t = self.trackers[track_idx]
@@ -130,10 +134,11 @@ class Tracker:
             self._add([predictions[detection_idx]], state=TrackState.NEW)
         
         self.prev_frame = frame
+        self.prev_decoder_output = decoder_output
         return [track for track in self.trackers if track.is_confirmed]
         
                 
-    def _associate_detections_to_trackers(self, frame, detections: List[DetectionResult], warp: Optional[np.ndarray] = None):
+    def _associate_detections_to_trackers(self, frame, decoder_output, detections: List[DetectionResult], warp: Optional[np.ndarray] = None):
         if len(self.trackers) == 0:
             return [], list(range(len(detections))), []
         
@@ -177,7 +182,7 @@ class Tracker:
         
         if self.use_pointflow and len(unmatched_trackers) > 0:
             matches, unmatched_detections, unmatched_trackers = \
-                self.associate_using_pointflow(frame, detections, matches, unmatched_detections, unmatched_trackers)
+                self.associate_using_pointflow(frame, decoder_output, detections, matches, unmatched_detections, unmatched_trackers)
 
         return matches, unmatched_detections, unmatched_trackers
     
@@ -200,8 +205,8 @@ class Tracker:
        
         return xy_dist
 
-    def associate_using_pointflow(self, frame: np.ndarray, detections: List[DetectionResult], matches: List[Tuple[int, DetectionResult]], unmatched_detections: List[int], unmatched_trackers: List[int]):
-        self.estimate_next_locations(frame, unmatched_trackers)
+    def associate_using_pointflow(self, frame: np.ndarray, decoder_output: np.ndarray, detections: List[DetectionResult], matches: List[Tuple[int, DetectionResult]], unmatched_detections: List[int], unmatched_trackers: List[int]):
+        self.estimate_next_locations(frame, decoder_output, unmatched_trackers)
 
         if len(unmatched_detections) > 0:
             matches, unmatched_detections, unmatched_trackers = self.associate_detections_using_pointflow(matches, detections, unmatched_detections, unmatched_trackers)
@@ -211,12 +216,12 @@ class Tracker:
 
         return matches, unmatched_detections, unmatched_trackers
         
-    def estimate_next_locations(self, frame: np.ndarray, unmatched_trackers: List[int]):
-        params_list = [(self.trackers[t], self.prev_frame, frame) for t in unmatched_trackers if self.trackers[t].is_confirmed]
+    def estimate_next_locations(self, frame: np.ndarray, decoder_output: np.ndarray, unmatched_trackers: List[int]):
+        params_list = [(self.trackers[t], self.prev_frame, frame, self.prev_decoder_output, decoder_output) for t in unmatched_trackers if self.trackers[t].is_confirmed]
 
         with ThreadPoolExecutor(max_workers=12) as executor:
             # Map the computation to the thread pool
-            futures = [executor.submit(lambda p: p[0].estimate_step(p[1], p[2]), params) for params in params_list]
+            futures = [executor.submit(lambda p: p[0].estimate_step(p[1], p[2], p[3], p[4]), params) for params in params_list]
 
             # Collect the results
             for future in futures:

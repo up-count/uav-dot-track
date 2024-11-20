@@ -4,3 +4,6 @@
 [submodule "eval/TrackEval"]
 	path = eval/TrackEval
 	url = git@github.com:JonathonLuiten/TrackEval.git
+[submodule "pyeco"]
+	path = pyeco
+	url = git@github.com:StrangerZhang/pyECO.git

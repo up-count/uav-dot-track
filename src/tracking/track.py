@@ -10,6 +10,8 @@ from src.tracking.kalman_box_tracker import KalmanBoxTracker
 from src.tracking.detection_result import DetectionResult
 from src.tracking.track_state import TrackState
 
+from pyECO.eco import ECOTracker
+
    
 @dataclass
 class TrackParams:
@@ -22,40 +24,56 @@ class TrackParams:
 
 class PointFlowWrapper:
     def __init__(self, method: str, pred: DetectionResult):
-        assert method in ['csrt']
+        assert method in ['csrt', 'deep_eco'], f'Unknown method {method}'
 
         self._method = method
         self._status = None
         self._initialized = False
 
-        if method == 'csrt':
+        if self._method == 'csrt':
             self.params = cv2.TrackerCSRT_Params()
             self.params.use_gray = True
             self.params.template_size = int(4*pred.xyr[2])
 
             self.tracker = cv2.TrackerCSRT.create(self.params)
+        elif self._method == 'deep_eco':
+            self.tracker = ECOTracker()
 
-    def update(self, prev_frame: np.ndarray, frame: np.ndarray, track: 'Track'):
+    def update(self, prev_frame: np.ndarray, frame: np.ndarray, track: 'Track', prev_decoder_output: np.ndarray, decoder_output: np.ndarray):
         x, y, r = track.xyr
+        bbox = (x-r, y-r, 2*r, 2*r)
         
         if not self._initialized:
-            bbox = (x-r, y-r, 2*r, 2*r)
-            self.tracker.init(prev_frame, bbox)
             self._initialized = True
+                        
+            if self._method == 'csrt':
+                self.tracker.init(prev_frame, bbox)
+            elif self._method == 'deep_eco':
+                self.tracker.init(frame, prev_decoder_output, bbox)
 
-        ret, bbox = self.tracker.update(frame)
+        if self._method == 'csrt':
+            ret, bbox = self.tracker.update(frame)
+        elif self._method == 'deep_eco':
+            bbox = self.tracker.update(frame, decoder_output)
+            ret = True
 
         if ret:
-            new_x1, new_y1, new_w, new_h = bbox
+            if self._method == 'csrt':
+                new_x1, new_y1, new_w, new_h = bbox
+                new_xc = new_x1 + new_w // 2
+                new_yc = new_y1 + new_h // 2
 
-            new_xc = new_x1 + new_w // 2
-            new_yc = new_y1 + new_h // 2
+            elif self._method == 'deep_eco':
+                new_x1, new_y1, new_x2, new_y2 = bbox
+
+                new_xc = (new_x1 + new_x2) // 2
+                new_yc = (new_y1 + new_y2) // 2
 
             self._status = DetectionResult(
                 label=track.label,
                 confidence=track.confidence,
-                x=new_xc,
-                y=new_yc,
+                x=int(new_xc),
+                y=int(new_yc),
                 r=r,
                 frame_shape=track._pred[-1].frame_shape,
                 from_pointflow=True,
@@ -102,11 +120,11 @@ class Track:
         self._limit_pred_history()
         self._remove_if_out_of_frame()
  
-    def estimate_step(self, prev_frame: np.ndarray, frame: np.ndarray):
+    def estimate_step(self, prev_frame: np.ndarray, frame: np.ndarray, prev_decoder_output: np.ndarray, decoder_output: np.ndarray):
         if self._pointflow is None:
             self._pointflow = PointFlowWrapper(self._track_params.pointflow_method, self._pred[-1])
 
-        self._pointflow.update(prev_frame, frame, self)
+        self._pointflow.update(prev_frame, frame, self, prev_decoder_output, decoder_output)
 
     def update(self, pred: DetectionResult):
         self._pred.append(pred)

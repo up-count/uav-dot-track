@@ -66,7 +66,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
     if 'pred' in task:
         write_csv = CSVWriter(f'./outputs/preds/{dataset}/MOT17-test/{name}/data/', video_source.file_name)
         
-    cache_helper = CacheHelper(cache_det, cache_dir + f'/{config["dataset"]}', video_source.file_name, video_source.resolution)
+    cache_helper = CacheHelper(cache_det, cache_dir + f'/{config["dataset"]}', video_source.file_name, len(video_source), video_source.resolution)
     cache_helper.set_model(model, device, config)
         
     ## Initialize the tracker
@@ -83,7 +83,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
     
     for i, (frame, alt) in enumerate(tqdm(video_source)):
 
-        predictions = cache_helper(frame_id=i, image=frame)
+        predictions, decoder_output = cache_helper(frame_id=i, image=frame)
 
         if 'det' in task:
             for pred in predictions:
@@ -91,7 +91,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
                 
                 cv2.circle(frame, (int(x), int(y)), 3, (0, 0, 255), -1)
         else:
-            online_tracks = tracker(frame, i, from_numpy_to_detection_results(predictions, alt, frame_shape=frame.shape))
+            online_tracks = tracker(frame, decoder_output, i, from_numpy_to_detection_results(predictions, alt, frame_shape=frame.shape))
 
             for t in online_tracks:
                 if 'vid' in task or 'viz' in task:

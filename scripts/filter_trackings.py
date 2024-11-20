@@ -18,7 +18,7 @@ def main(input, min_len):
 
     name = input.split('/')[-2] if input[-1] == '/' else input.split('/')[-1]
 
-    DEST = str(source).replace(name, name + '+filtered')
+    DEST = str(source).replace(name, 'filtered_'+name)
 
     Path(DEST).mkdir(parents=True, exist_ok=True)
 
