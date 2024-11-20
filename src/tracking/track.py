@@ -10,7 +10,7 @@ from src.tracking.kalman_box_tracker import KalmanBoxTracker
 from src.tracking.detection_result import DetectionResult
 from src.tracking.track_state import TrackState
 
-from pyECO.eco import ECOTracker
+from pyeco.eco import ECOTracker
 
    
 @dataclass
