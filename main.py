@@ -21,12 +21,14 @@ from src.utils.video_writer import VideoWriter
 @click.option('--device', type=click.Choice(['cpu', 'cuda']), help='Device to run the model on', default='cpu')
 @click.option('--cache-det', type=bool, is_flag=True, help='Cache detections')
 @click.option('--cache-dir', type=str, help='Path to the cache directory', default='./cache')
-@click.option('--track-max-age', type=int, help='Max age of the track', default=30)
-@click.option('--track-min-hits', type=int, help='Min hits of the track', default=10)
-@click.option('--track-iou-threshold', type=float, help='IOU threshold', default=0.2)
+@click.option('--track-max-age', type=int, help='Max age of the track', default=60) # 2 seconds
+@click.option('--track-min-hits', type=int, help='Min hits of the track', default=30) # 1 second
 @click.option('--track-cmc-flow', type=bool, is_flag=True, help='Use optical flow')
 @click.option('--track-use-alt', type=bool, is_flag=True, help='Use altitude information')
-def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age, track_min_hits, track_iou_threshold, track_cmc_flow, track_use_alt):
+@click.option('--track-use-pointflow', type=bool, is_flag=True, help='Use pointflow for tracking')
+@click.option('--track-use-add-cls', type=bool, is_flag=True, help='Use additional classification for tracking')
+@click.option('--track-use-cutoff', type=bool, is_flag=True, help='Use dynamic cut-off for tracking')
+def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age, track_min_hits, track_cmc_flow, track_use_alt, track_use_pointflow, track_use_add_cls, track_use_cutoff):
     if not os.path.exists(video):
         print(f'Video file {video} does not exist')
         return
@@ -53,7 +55,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
     with open(dot_config, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     
-    video_source = VideoAltitudeReader(video, use_alt=track_use_alt)
+    video_source = VideoAltitudeReader(video, dataset=dataset, use_alt=track_use_alt)
         
     if 'vid' in task:
         write_video = VideoWriter('./outputs/videos/', video_source)
@@ -64,21 +66,24 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
     if 'pred' in task:
         write_csv = CSVWriter(f'./outputs/preds/{dataset}/MOT17-test/{name}/data/', video_source.file_name)
         
-    cache_helper = CacheHelper(cache_det, cache_dir + f'/{config["dataset"]}', video_source.file_name, video_source.resolution)
+    cache_helper = CacheHelper(cache_det, cache_dir + f'/{config["dataset"]}', video_source.file_name, len(video_source), video_source.resolution)
     cache_helper.set_model(model, device, config)
         
     ## Initialize the tracker
     tracker = Tracker(
+        dataset=dataset,
         max_age=track_max_age,
         min_hits=track_min_hits,
-        iou_threshold=track_iou_threshold,
-        flow = track_cmc_flow,
-        flow_scale_factor=2.0 if dataset == 'dronecrowd' else 4.0
+        use_flow = track_cmc_flow,
+        use_add_cls=track_use_add_cls,
+        use_pointflow=track_use_pointflow,
+        track_use_cutoff=track_use_cutoff,
+        flow_scale_factor=2.0 if dataset == 'dronecrowd' else 4.0,
     )
     
     for i, (frame, alt) in enumerate(tqdm(video_source)):
 
-        predictions = cache_helper(frame_id=i, image=frame)
+        predictions, decoder_output = cache_helper(frame_id=i, image=frame)
 
         if 'det' in task:
             for pred in predictions:
@@ -86,7 +91,7 @@ def main(name, dataset, video, task, device, cache_det, cache_dir, track_max_age
                 
                 cv2.circle(frame, (int(x), int(y)), 3, (0, 0, 255), -1)
         else:
-            online_tracks = tracker(frame, i, from_numpy_to_detection_results(predictions, alt))
+            online_tracks = tracker(frame, decoder_output, i, from_numpy_to_detection_results(predictions, alt, frame_shape=frame.shape))
 
             for t in online_tracks:
                 if 'vid' in task or 'viz' in task:

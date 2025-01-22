@@ -11,7 +11,7 @@ from src.tracking.detection_result import DetectionResult
 class KalmanBoxTracker(object):
     
     count = 0
-    def __init__(self, det: DetectionResult):
+    def __init__(self, det: DetectionResult, frame_shape: Tuple[int, int]):
         """
         Initialize a tracker using initial bounding box
         
@@ -19,7 +19,9 @@ class KalmanBoxTracker(object):
         """
         self.det = det
         
-        bbox = det.xyxy
+        xyr = det.xyr
+
+        self.frame_shape = frame_shape
         
         self.kf = KalmanFilter(dim_x=7, dim_z=4)
         self.kf.F = np.array([[1,0,0,0,1,0,0],[0,1,0,0,0,1,0],[0,0,1,0,0,0,1],[0,0,0,1,0,0,0],[0,0,0,0,1,0,0],[0,0,0,0,0,1,0],[0,0,0,0,0,0,1]])
@@ -31,7 +33,7 @@ class KalmanBoxTracker(object):
         self.kf.Q[-1,-1] *= 0.5 # Q: Covariance matrix of process noise (set to high for erratically moving things)
         self.kf.Q[4:,4:] *= 0.5
 
-        self.kf.x[:4] = self._convert_bbox_to_z(bbox) # STATE VECTOR
+        self.kf.x[:4] = self._convert_xyr_to_z(xyr) # STATE VECTOR
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
@@ -40,8 +42,7 @@ class KalmanBoxTracker(object):
         self.hit_streak = 0
         self.age = 0
         self.centroidarr = []
-        CX = (bbox[0]+bbox[2])//2
-        CY = (bbox[1]+bbox[3])//2
+        CX, CY = xyr[:2]
         self.centroidarr.append((CX,CY))
         
     def update(self, det: DetectionResult):
@@ -54,10 +55,9 @@ class KalmanBoxTracker(object):
         self.hits += 1
         self.hit_streak += 1
         
-        bbox = det.xyxy
-        self.kf.update(self._convert_bbox_to_z(bbox))
-        CX = (bbox[0]+bbox[2])//2
-        CY = (bbox[1]+bbox[3])//2
+        xyr = det.xyr
+        self.kf.update(self._convert_xyr_to_z(xyr))
+        CX, CY = xyr[:2]
         self.centroidarr.append((CX,CY))
     
     def predict(self, warp: Optional[np.ndarray] = None):
@@ -75,17 +75,17 @@ class KalmanBoxTracker(object):
         if(self.time_since_update>0):
             self.hit_streak = 0
         self.time_since_update += 1
-        self.history.append(self._convert_x_to_bbox(self.kf.x))
+        self.history.append(self._convert_x_to_xyr(self.kf.x))
         
-        x1, y1, x2, y2 = self.history[-1][0]
+        x, y, _ = self.history[-1][0]
         
         return DetectionResult(
             label=self.det.label,
             confidence=self.det.confidence,
-            x=(x1+x2)/2,
-            y=(y1+y2)/2,
-            w=x2-x1,
-            h=y2-y1,
+            x=x,
+            y=y,
+            r=self.det.xyr[2],
+            frame_shape=self.frame_shape
         )
     
     def apply_warp(self, warp: np.array):
@@ -103,20 +103,14 @@ class KalmanBoxTracker(object):
         self.kf.P[:2,:2] = xy_corr
     
     @staticmethod
-    def _convert_bbox_to_z(bbox):
-        w = bbox[2] - bbox[0]
-        h = bbox[3] - bbox[1]
-        x = bbox[0] + w/2.
-        y = bbox[1] + h/2.
-        s = w * h    
-        #scale is just area
-        r = w / float(h)
-        return np.array([x, y, s, r]).reshape((4, 1))
+    def _convert_xyr_to_z(xyr):
+        x, y, r = xyr
+
+        return np.array([x, y, 0, r]).reshape((4, 1))
 
     @staticmethod
-    def _convert_x_to_bbox(x):
-        w = np.sqrt(x[2] * x[3])
-        h = x[2] / w
+    def _convert_x_to_xyr(x):
+        x, y, _, r = x[:4]
         
-        return np.array([x[0]-w/2.,x[1]-h/2.,x[0]+w/2.,x[1]+h/2.]).reshape((1,4))
+        return np.array([x, y, r]).reshape((1, 3))
 

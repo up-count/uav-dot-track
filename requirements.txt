@@ -1,3 +1,4 @@
 -r ./uavdot/requirements.txt
 opencv-contrib-python
 filterpy
+zarr

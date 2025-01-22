@@ -17,29 +17,26 @@ class DetectionResult:
         The x coordinate of the center of the detected object.
     y : int
         The y coordinate of the center of the detected object.
-    w : int
-        The width of the detected object.
-    h : int
-        The height of the detected object.
+    r : int
+        The radius of the detected object.
+    frame_shape : Tuple[int, int]
+        The shape of the frame.
     """
 
     label: str
     confidence: float
     x: int
     y: int
-    w: int
-    h: int
-    
+    r: int
+    frame_shape: Tuple[int, int]
+    from_pointflow: bool = False
+
     @property
-    def xyxy(self):
-        return (self.x - self.w//2, self.y - self.h//2, self.x + self.w//2, self.y + self.h//2)
-    
-    @property
-    def xywh(self):
-        return (self.x, self.y, self.w, self.h)
+    def xyr(self):
+        return int(self.x), int(self.y), int(self.r)
 
 
-def from_numpy_to_detection_results(predictions, alt):
+def from_numpy_to_detection_results(predictions, alt, frame_shape):
     """
     Convert a numpy array to a list of DetectionResult objects.
 
@@ -58,6 +55,6 @@ def from_numpy_to_detection_results(predictions, alt):
     if alt < 0:
         size = 20
     else:
-        size = 100 / alt * 20
+        size = int(100 / alt * 20)
 
-    return [DetectionResult(label='', confidence=p[2], x=p[0], y=p[1], w=size, h=size) for p in predictions]
+    return [DetectionResult(label='', confidence=p[2], x=p[0], y=p[1], r=size//2, frame_shape=frame_shape) for p in predictions]
