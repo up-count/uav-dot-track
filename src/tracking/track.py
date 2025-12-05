@@ -148,7 +148,7 @@ class Track:
             else:
                 conf = 1.0
 
-            if conf >= 0.5:
+            if conf >= 0.8:
                 self._prev_state = TrackState.NEW
                 self._state = TrackState.CONFIRMED
             else:
