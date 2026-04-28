@@ -4,7 +4,18 @@ The DOT approach defines objects as pairs of coordinates and uses an encoder-dec
 
 ## Results
 
-The repository is a supplement to the paper "Improving trajectory continuity in drone-based crowd monitoring using a set of minimal-cost techniques and deep discriminative correlation filters". The method achieves state-of-the-art results on the DroneCrowd and newly introduced UP-COUNT-TRACK datasets. The results are summarized in the table below.
+The repository is a supplement to the paper ["Improving trajectory continuity in drone-based crowd monitoring using a set of minimal-cost techniques and deep discriminative correlation filters"](https://up-count.github.io/tracking/). The method achieves state-of-the-art results on the DroneCrowd and newly introduced UP-COUNT-TRACK datasets. The results are summarized in the table below.
+
+Please cite as:
+```
+@article{ptak2026improving,
+  title={Improving trajectory continuity in drone-based crowd monitoring using a set of minimal-cost techniques and deep discriminative correlation filters},
+  author={Ptak, Bartosz and Kraft, Marek},
+  journal={IEEE Access},
+  year={2026},
+  publisher={IEEE}
+}
+```
 
 -----
 
